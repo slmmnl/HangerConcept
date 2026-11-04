@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>Flat triangle hanger: interactive CAD</title>
+<meta name="description" content="Interactive 3D, x-ray, section and exploded views of a garment-drying hanger concept.">
+<style>
+:root{--bg:#14151a;--panel:#1d1f26;--line:#32353f;--ink:#eceef2;--mut:#9aa0ad;--fu:#d4147a;--cu:#c27a42}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;left:0;top:0;right:0;bottom:0}
+canvas{display:block;touch-action:none}
+header{position:fixed;left:0;right:0;top:0;padding:14px 16px;pointer-events:none;background:linear-gradient(#14151a,#14151a00)}
+header h1{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em}
+header p{margin:3px 0 0;font-size:12px;color:var(--mut)}
+#ui{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px;max-height:46vh;overflow:auto}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{background:transparent;color:var(--mut);border:0;padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer}
+.seg button.on{background:var(--fu);color:#fff}
+label{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:10px;flex:1;min-width:180px}
+input[type=range]{flex:1;accent-color:var(--fu)}
+.chk{font-size:13px;color:var(--mut);display:flex;gap:6px;align-items:center}
+#info{border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13px;line-height:1.4;min-height:58px}
+#info b{display:block;font-size:14px;margin-bottom:2px}
+#info span{color:var(--mut)}
+details{border:1px solid var(--line);border-radius:10px}
+summary{padding:9px 12px;font-size:13px;color:var(--mut);cursor:pointer}
+#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;padding:0 10px 10px}
+#list button{background:#262932;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px;text-align:left;cursor:pointer}
+#list button.on{border-color:var(--fu)}
+.foot{font-size:11px;color:var(--mut)}
+#load{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--mut);font-size:14px;transition:opacity .4s}
+@media (min-width:900px){
+ #stage{right:360px}
+ #ui{left:auto;top:0;bottom:0;width:360px;max-height:none;border-top:0;border-left:1px solid var(--line);padding-top:70px}
+ header{right:360px}
+}
+</style>
+<script type="importmap">{"imports":{"three":"./js/three.module.js"}}</script>
+</head><body>
+<div id="stage"></div>
+<header><h1>Flat triangle hanger</h1><p>Garment-drying hanger concept · interactive CAD · drag to rotate, pinch to zoom, tap a part</p></header>
+<div id="ui">
+ <div class="row">
+  <div class="seg" id="modes"><button data-m="solid" class="on">Solid</button><button data-m="xray">X-ray</button><button data-m="section">Section</button></div>
+  <label>Explode <input id="ex" type="range" min="0" max="100" value="0"></label>
+ </div>
+ <div class="row"><span class="chk"><input id="spin" type="checkbox" checked> Auto-rotate</span><span class="chk"><input id="lbl" type="checkbox"> Show part names on tap</span></div>
+ <div id="info"><b>Tap a part</b><span>Switch to X-ray to see inside, or drag the Explode slider to pull it apart.</span></div>
+ <details><summary>All parts</summary><div id="list"></div></details>
+ <div class="foot">Concept CAD. All ratings and sizes are estimates; nothing here has been built or tested. 440 mm between arm axes, about 170 mm body height.</div>
+</div>
+<div id="load">Loading model…</div>
+<script type="module">
+import * as THREE from 'three';
+import {STLLoader} from './js/STLLoader.js';
+import {OrbitControls} from './js/OrbitControls.js';
+import {RoomEnvironment} from './js/RoomEnvironment.js';
+
+const INFO={
+ shell:['Body shell','Two-piece metal tube shell: a vertical strut, two sloped arms and a horizontal bar. Splits front and back for assembly.'],
+ hook:['Hook','Passes through a sealed boot in the cap and bolts to the load cell inside.'],
+ boot:['Hook boot','Rubber seal around the hook shank where it leaves the cap.'],
+ loadcell:['Load cell','Bar-type, clamped at one end with the hook on the free end. Weighs the garment; the stop rule watches mass slope.'],
+ loadcell_strain:['Strain gauge','Sensing patch on the load-cell beam.'],
+ lc_bracket:['Load-cell bracket','Clamps the fixed end of the load cell inside the strut cap.'],
+ motor:['Motor, 28 mm class','Unverified part. Target about 30 m³/h at 150 Pa (estimate). Sits in the strut and pulls air in from the top.'],
+ mount:['Motor mount','Holds the motor and seals the airflow path.'],
+ impeller:['Impeller','Small backward-curved wheel; pushes air down the strut.'],
+ heater:['PTC heater','Ceramic honeycomb, 15 to 25 W (estimate), directly after the fan so the whole stream is warmed. Needs a thermal cutoff.'],
+ heater_tab:['Heater terminal','Electrical tab for the heater.'],
+ sht31_inlet:['Humidity sensor, inlet','Reads room humidity and temperature.'],
+ sht31_outlet:['Humidity sensor, outlet','Reads humidity and temperature of air leaving the bar.'],
+ cell:['18650 cell','Six cells, three per arm. Wiring open: 3S2P gives 11.1 V, about 55 Wh (estimate).'],
+ cellcap:['Cell contact','End contact of an 18650 cell.'],
+ pcb:['Control PCB','ESP32-C3, fan PWM, heater MOSFET, charger, HX711. To be designed.'],
+ mcu:['Microcontroller','ESP32-C3 module on the control board.'],
+ usbc:['USB-C port','Charges the pack. 12 V PD board assumed.'],
+ jhook:['J-hook','Optional: hang trousers by the waistband so the legs face the bar.']
+};
+const kind=n=>n.startsWith('shell')?'shell':n.startsWith('cellcap')?'cellcap':n.startsWith('cell')?'cell':n.startsWith('jhook')?'jhook':n;
+const FUCH='#d4147a',COP='#c27a42';
+function mkMat(n){
+ const k=kind(n),M=o=>new THREE.MeshPhysicalMaterial(o);
+ switch(k){
+  case 'shell':return M({color:'#8d93a0',metalness:.92,roughness:.3,clearcoat:.35,clearcoatRoughness:.25});
+  case 'hook':return M({color:FUCH,metalness:.1,roughness:.3,clearcoat:1,clearcoatRoughness:.12});
+  case 'boot':return M({color:'#15161a',roughness:.7});
+  case 'jhook':return M({color:COP,metalness:1,roughness:.28});
+  case 'loadcell':case 'lc_bracket':case 'heater_tab':return M({color:'#c5c9d0',metalness:1,roughness:.25});
+  case 'loadcell_strain':return M({color:FUCH,roughness:.4,metalness:.2});
+  case 'usbc':return M({color:'#b9bdc6',metalness:1,roughness:.3});
+  case 'motor':return M({color:FUCH,metalness:.25,roughness:.35,clearcoat:.8});
+  case 'mount':return M({color:'#6b2fa0',metalness:.3,roughness:.4});
+  case 'impeller':return M({color:COP,metalness:1,roughness:.22});
+  case 'heater':return M({color:'#e8a43a',metalness:.3,roughness:.5,emissive:'#ff7a18',emissiveIntensity:.55});
+  case 'cellcap':return M({color:'#d4d7dd',metalness:1,roughness:.2});
+  case 'cell':return M({color:'#aeb4bf',metalness:1,roughness:.22,clearcoat:.5});
+  case 'pcb':return M({color:'#1f7a5e',roughness:.5,metalness:.1});
+  case 'mcu':return M({color:'#15161a',roughness:.5});
+  default:return M({color:'#e8e8ea',roughness:.5,metalness:.1});
+ }
+}
+// geometry constants from the CAD (mm)
+const HALF=220,H=112,ARM=Math.hypot(HALF,H),alpha=Math.atan2(H,HALF);
+function offset(n,t){
+ const k=kind(n),v=new THREE.Vector3();
+ const m=n.match(/(-?1)_(\d)/);const sg=m?+m[1]:(n.match(/jhook(-?1)/)?+n.match(/jhook(-?1)/)[1]:0),i=m?+m[2]:0;
+ const nrm=sg?new THREE.Vector3(sg*Math.sin(alpha),0,Math.cos(alpha)):null;
+ const dir=sg?new THREE.Vector3(sg*Math.cos(alpha),0,-Math.sin(alpha)):null;
+ switch(k){
+  case 'shell':v.set(0,(n==='shell_front'?-1:1)*110,0);break;
+  case 'hook':v.set(0,0,95);break;
+  case 'boot':v.set(0,0,80);break;
+  case 'loadcell':case 'loadcell_strain':case 'lc_bracket':v.set(0,0,55);break;
+  case 'sht31_inlet':v.set(40,0,45);break;
+  case 'motor':v.set(0,0,30);break;
+  case 'mount':v.set(0,0,5);break;
+  case 'impeller':v.set(0,0,-18);break;
+  case 'heater':case 'heater_tab':v.set(0,0,-55);break;
+  case 'sht31_outlet':v.set(40,0,-70);break;
+  case 'cell':case 'cellcap':v.copy(nrm).multiplyScalar(70).addScaledVector(dir,(i-1)*34);break;
+  case 'pcb':case 'mcu':v.set(40,0,-80);break;
+  case 'usbc':v.set(60,0,-100);break;
+  case 'jhook':v.copy(dir).multiplyScalar(-10).add(new THREE.Vector3(0,0,-80));break;
+ }
+ return v.multiplyScalar(t);
+}
+const stage=document.getElementById('stage');
+const ui=document.getElementById('ui');
+function layout(){stage.style.bottom=innerWidth<900?ui.offsetHeight+'px':'0px';}
+layout();
+const SW=()=>stage.clientWidth,SH=()=>stage.clientHeight;
+const r=new THREE.WebGLRenderer({antialias:true});
+r.setPixelRatio(Math.min(devicePixelRatio,2));r.setSize(SW(),SH());
+r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=1.0;r.outputColorSpace=THREE.SRGBColorSpace;
+r.localClippingEnabled=true;r.shadowMap.enabled=false;stage.appendChild(r.domElement);
+const scene=new THREE.Scene();
+{const cv=document.createElement('canvas');cv.width=4;cv.height=512;const g=cv.getContext('2d'),gr=g.createLinearGradient(0,0,0,512);gr.addColorStop(0,'#3a3d46');gr.addColorStop(1,'#14151a');g.fillStyle=gr;g.fillRect(0,0,4,512);const t=new THREE.CanvasTexture(cv);t.colorSpace=THREE.SRGBColorSpace;scene.background=t;}
+scene.environment=new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(),.04).texture;scene.environmentIntensity=.95;
+const key=new THREE.DirectionalLight('#fff4ea',2.2);key.position.set(-300,-500,500);scene.add(key);
+const rim=new THREE.DirectionalLight('#cfe0ff',1.2);rim.position.set(300,400,300);scene.add(rim);
+const cam=new THREE.PerspectiveCamera(30,SW()/SH(),1,5000);cam.up.set(0,0,1);
+const ctl=new OrbitControls(cam,r.domElement);ctl.enableDamping=true;ctl.dampingFactor=.08;ctl.autoRotate=true;ctl.autoRotateSpeed=1.1;
+ctl.minDistance=200;ctl.maxDistance=2200;
+const target=new THREE.Vector3(0,0,70);ctl.target.copy(target);
+function frame(){const portrait=SW()<SH()||SW()<700;const d=portrait?1080:1150;cam.position.set(target.x-d*.45,target.y-d*.8,target.z+d*.3);cam.aspect=SW()/SH();cam.updateProjectionMatrix();}
+frame();
+const parts=[],group=new THREE.Group();scene.add(group);
+const clipPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+const spec=await (await fetch('models/parts.json')).json();
+const loader=new STLLoader();
+await Promise.all(spec.map(p=>new Promise(res=>loader.load('models/'+p.file,g=>{
+ g.computeVertexNormals();const mat=mkMat(p.name);const mesh=new THREE.Mesh(g,mat);mesh.userData={name:p.name,kind:kind(p.name),base:mat.clone()};
+ const edges=new THREE.LineSegments(new THREE.EdgesGeometry(g,35),new THREE.LineBasicMaterial({color:'#9fb4ff',transparent:true,opacity:.35}));edges.visible=false;mesh.add(edges);mesh.userData.edges=edges;
+ group.add(mesh);parts.push(mesh);res();}))));
+document.getElementById('load').style.opacity=0;setTimeout(()=>document.getElementById('load').remove(),500);
+let mode='solid',ex=0,sel=null;
+function apply(){
+ for(const m of parts){
+  const u=m.userData,sh=u.kind==='shell',mat=m.material;
+  m.position.copy(offset(u.name,ex));
+  mat.clippingPlanes=null;mat.side=THREE.FrontSide;mat.transparent=false;mat.opacity=1;mat.depthWrite=true;u.edges.visible=false;
+  if(sh){
+    if(mode==='xray'){mat.transparent=true;mat.opacity=.13;mat.depthWrite=false;mat.side=THREE.DoubleSide;u.edges.visible=true;}
+    else if(mode==='section'){mat.clippingPlanes=[clipPlane];mat.side=THREE.DoubleSide;}
+    else if(ex>0&&u.name==='shell_front'){mat.transparent=true;mat.opacity=Math.max(.18,1-ex*1.4);mat.depthWrite=false;}
+    if(mode==='solid'&&ex>0&&u.name==='shell_back'){mat.transparent=true;mat.opacity=Math.max(.45,1-ex*.8);}
+  }
+  mat.needsUpdate=true;
+ }
+ hl();
+}
+function hl(){for(const m of parts){const on=sel&&(m===sel||(sel.userData.kind===m.userData.kind&&['cell','cellcap'].includes(m.userData.kind)&&false));m.material.emissive&&(m.material.emissive.set(on?'#ffffff':(m.userData.kind==='heater'?'#ff7a18':'#000000')),m.material.emissiveIntensity=on?.28:(m.userData.kind==='heater'?.55:1));}}
+document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#modes button').forEach(x=>x.classList.remove('on'));b.classList.add('on');mode=b.dataset.m;apply();});
+document.getElementById('ex').oninput=e=>{ex=e.target.value/100;apply();};
+document.getElementById('spin').onchange=e=>ctl.autoRotate=e.target.checked;
+// info + list
+const info=document.getElementById('info'),list=document.getElementById('list');
+function describe(n){const k=kind(n);const m=n.match(/(-?1)_(\d)/);let title=INFO[k][0],text=INFO[k][1];
+ if(m&&(k==='cell'||k==='cellcap'))title+=` (${+m[1]===1?'right':'left'} arm, ${+m[2]+1} of 3)`;
+ if(k==='jhook')title+=n.endsWith('-1')?' (left)':' (right)';
+ if(k==='shell')title=n==='shell_front'?'Body shell, front half':'Body shell, back half';return [title,text];}
+function show(m){sel=m;const [t,x]=describe(m.userData.name);info.innerHTML=`<b>${t}</b><span>${x}</span>`;hl();
+ list.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.n===m.userData.name));}
+const groups=[['shell_front','Body shell, front'],['shell_back','Body shell, back'],['hook','Hook'],['loadcell','Load cell'],['motor','Motor'],['impeller','Impeller'],['heater','PTC heater'],['cell1_0','Cells, right arm'],['cell-1_0','Cells, left arm'],['pcb','Control PCB'],['usbc','USB-C port'],['jhook1','J-hooks'],['sht31_outlet','Humidity sensor']];
+for(const [n,l] of groups){const b=document.createElement('button');b.textContent=l;b.dataset.n=n;b.onclick=()=>{const m=parts.find(p=>p.userData.name===n);if(m)show(m);};list.appendChild(b);}
+// picking
+const ray=new THREE.Raycaster(),pt=new THREE.Vector2();let down=null;
+r.domElement.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];ctl.autoRotate=false;document.getElementById('spin').checked=false;});
+r.domElement.addEventListener('pointerup',e=>{if(!down)return;if(Math.hypot(e.clientX-down[0],e.clientY-down[1])>6){down=null;return;}down=null;
+ const bb=r.domElement.getBoundingClientRect();pt.set((e.clientX-bb.left)/bb.width*2-1,-((e.clientY-bb.top)/bb.height)*2+1);ray.setFromCamera(pt,cam);
+ const cand=parts.filter(m=>!(m.userData.kind==='shell'&&mode==='xray')&&!(m.userData.kind==='shell'&&mode==='section'&&m.userData.name==='shell_front'));
+ const hit=ray.intersectObjects(cand,false).find(h=>h.object.visible);
+ if(hit)show(hit.object);});
+addEventListener('resize',()=>{layout();r.setSize(SW(),SH());cam.aspect=SW()/SH();cam.updateProjectionMatrix();});
+new ResizeObserver(()=>{layout();r.setSize(SW(),SH());cam.aspect=SW()/SH();cam.updateProjectionMatrix();}).observe(ui);
+apply();
+(function loop(){ctl.update();r.render(scene,cam);requestAnimationFrame(loop);})();
+</script>
+</body></html>
