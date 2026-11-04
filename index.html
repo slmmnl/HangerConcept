@@ -70,12 +70,10 @@ const INFO={
  impeller:['Impeller','Small backward-curved wheel; pushes air down the strut.'],
  heater:['PTC heater','Ceramic honeycomb, 15 to 25 W (estimate), directly after the fan so the whole stream is warmed. Needs a thermal cutoff.'],
  heater_tab:['Heater terminal','Electrical tab for the heater.'],
- sht31_inlet:['Humidity sensor, inlet','Reads room humidity and temperature.'],
- sht31_outlet:['Humidity sensor, outlet','Reads humidity and temperature of air leaving the bar.'],
+ sht31_ambient:['Ambient humidity sensor','SHT31 near the handle. Samples room air through a small port in the strut.'],
+ sht31_garment:['Garment humidity sensor','SHT31 at the bottom bar. Samples the air around the garment through a port in the underside.'],
  cell:['18650 cell','Six cells, three per arm. Wiring open: 3S2P gives 11.1 V, about 55 Wh (estimate).'],
  cellcap:['Cell contact','End contact of an 18650 cell.'],
- pcb:['Control PCB','ESP32-C3, fan PWM, heater MOSFET, charger, HX711. To be designed.'],
- mcu:['Microcontroller','ESP32-C3 module on the control board.'],
  usbc:['USB-C port','Charges the pack. 12 V PD board assumed.'],
  jhook:['J-hook','Optional: hang trousers by the waistband so the legs face the bar.']
 };
@@ -97,8 +95,6 @@ function mkMat(n){
   case 'heater':return M({color:'#e8a43a',metalness:.3,roughness:.5,emissive:'#ff7a18',emissiveIntensity:.55});
   case 'cellcap':return M({color:'#d4d7dd',metalness:1,roughness:.2});
   case 'cell':return M({color:'#aeb4bf',metalness:1,roughness:.22,clearcoat:.5});
-  case 'pcb':return M({color:'#1f7a5e',roughness:.5,metalness:.1});
-  case 'mcu':return M({color:'#15161a',roughness:.5});
   default:return M({color:'#e8e8ea',roughness:.5,metalness:.1});
  }
 }
@@ -114,14 +110,13 @@ function offset(n,t){
   case 'hook':v.set(0,0,95);break;
   case 'boot':v.set(0,0,80);break;
   case 'loadcell':case 'loadcell_strain':case 'lc_bracket':v.set(0,0,55);break;
-  case 'sht31_inlet':v.set(40,0,45);break;
+  case 'sht31_ambient':v.set(60,60,45);break;
   case 'motor':v.set(0,0,30);break;
   case 'mount':v.set(0,0,5);break;
   case 'impeller':v.set(0,0,-18);break;
   case 'heater':case 'heater_tab':v.set(0,0,-55);break;
-  case 'sht31_outlet':v.set(40,0,-70);break;
+  case 'sht31_garment':v.set(0,0,-80);break;
   case 'cell':case 'cellcap':v.copy(nrm).multiplyScalar(70).addScaledVector(dir,(i-1)*34);break;
-  case 'pcb':case 'mcu':v.set(40,0,-80);break;
   case 'usbc':v.set(60,0,-100);break;
   case 'jhook':v.copy(dir).multiplyScalar(-10).add(new THREE.Vector3(0,0,-80));break;
  }
@@ -184,7 +179,7 @@ function describe(n){const k=kind(n);const m=n.match(/(-?1)_(\d)/);let title=INF
  if(k==='shell')title=n==='shell_front'?'Body shell, front half':'Body shell, back half';return [title,text];}
 function show(m){sel=m;const [t,x]=describe(m.userData.name);info.innerHTML=`<b>${t}</b><span>${x}</span>`;hl();
  list.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.n===m.userData.name));}
-const groups=[['shell_front','Body shell, front'],['shell_back','Body shell, back'],['hook','Hook'],['loadcell','Load cell'],['motor','Motor'],['impeller','Impeller'],['heater','PTC heater'],['cell1_0','Cells, right arm'],['cell-1_0','Cells, left arm'],['pcb','Control PCB'],['usbc','USB-C port'],['jhook1','J-hooks'],['sht31_outlet','Humidity sensor']];
+const groups=[['shell_front','Body shell, front'],['shell_back','Body shell, back'],['hook','Hook'],['loadcell','Load cell'],['motor','Motor'],['impeller','Impeller'],['heater','PTC heater'],['cell1_0','Cells, right arm'],['cell-1_0','Cells, left arm'],['usbc','USB-C port'],['jhook1','J-hooks'],['sht31_ambient','Ambient humidity sensor'],['sht31_garment','Garment humidity sensor']];
 for(const [n,l] of groups){const b=document.createElement('button');b.textContent=l;b.dataset.n=n;b.onclick=()=>{const m=parts.find(p=>p.userData.name===n);if(m)show(m);};list.appendChild(b);}
 // picking
 const ray=new THREE.Raycaster(),pt=new THREE.Vector2();let down=null;
